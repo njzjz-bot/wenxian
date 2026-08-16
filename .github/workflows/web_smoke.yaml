@@ -55,7 +55,7 @@ jobs:
           npm install --no-save playwright
           npx playwright install --with-deps chromium
       - name: Exercise the released package with the compatibility shim
-        run: node tests/web_smoke.mjs
+        run: env -u WENXIAN_WHEEL_URL -u EXPECTED_WENXIAN_VERSION node tests/web_smoke.mjs
       - name: Exercise the branch wheel without the compatibility shim
         run: |
           python -m http.server 8000 --directory docs >/tmp/wenxian-http.log 2>&1 &
