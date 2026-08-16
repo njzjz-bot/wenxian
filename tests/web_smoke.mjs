@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { chromium } from "playwright";
 
 const target = process.env.WENXIAN_WEB_URL ?? "https://wenxian.njzjz.win/";
@@ -9,6 +11,17 @@ const cases = [
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext();
+const workerSource = await readFile(
+  new URL("../docs/webworker.js", import.meta.url),
+  "utf8",
+);
+await context.route("**/webworker.js", (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: "application/javascript",
+    body: workerSource,
+  }),
+);
 const page = await context.newPage();
 const workers = [];
 
@@ -87,7 +100,9 @@ try {
   }
   console.log(`[wenxian-version] ${installedVersion ?? "unknown"}`);
   if (installedVersion !== "0.3.3") {
-    throw new Error(`expected wenxian 0.3.3, loaded ${installedVersion ?? "unknown"}`);
+    throw new Error(
+      `expected wenxian 0.3.3, loaded ${installedVersion ?? "unknown"}`,
+    );
   }
 } catch (error) {
   await page.screenshot({ path: "web-smoke.png", fullPage: true });
