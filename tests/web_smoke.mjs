@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { chromium } from "playwright";
 
 const target = process.env.WENXIAN_WEB_URL ?? "https://wenxian.njzjz.win/";
+const expectedVersion = process.env.EXPECTED_WENXIAN_VERSION ?? "0.3.3";
 const cases = [
   "10.1063/5.0155600",
   "37526163",
@@ -11,10 +12,27 @@ const cases = [
 
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext();
-const workerSource = await readFile(
+let workerSource = await readFile(
   new URL("../docs/webworker.js", import.meta.url),
   "utf8",
 );
+if (process.env.WENXIAN_WHEEL_URL) {
+  const installLine =
+    'await micropip.install(["wenxian", "pylatexenc==3.0a21"]);';
+  if (!workerSource.includes(installLine)) {
+    throw new Error("could not locate the wenxian installation line");
+  }
+  workerSource = workerSource.replace(
+    installLine,
+    `await micropip.install([${JSON.stringify(process.env.WENXIAN_WHEEL_URL)}, "pylatexenc==3.0a21"]);`,
+  );
+}
+if (process.env.DISABLE_LEGACY_SHIM === "1") {
+  workerSource = workerSource.replace(
+    "  installLegacyWenxianBrowserShims();",
+    "  // Legacy shim disabled for branch-wheel validation.",
+  );
+}
 await context.route("**/webworker.js", (route) =>
   route.fulfill({
     status: 200,
@@ -24,6 +42,7 @@ await context.route("**/webworker.js", (route) =>
 );
 const page = await context.newPage();
 const workers = [];
+const nativeLimiterRequests = [];
 
 page.on("console", (message) => {
   console.log(`[console:${message.type()}] ${message.text()}`);
@@ -42,6 +61,11 @@ context.on("requestfailed", (request) => {
 });
 context.on("response", (response) => {
   const url = response.url();
+  if (
+    /(?:pyrate[-_]limiter|requests[-_]ratelimiter)/i.test(url)
+  ) {
+    nativeLimiterRequests.push(url);
+  }
   if (
     response.status() >= 400 ||
     /(?:pypi|pythonhosted|crossref|ncbi|europepmc|arxiv|datacite|semanticscholar)/i.test(
@@ -99,9 +123,17 @@ try {
     }
   }
   console.log(`[wenxian-version] ${installedVersion ?? "unknown"}`);
-  if (installedVersion !== "0.3.3") {
+  if (installedVersion !== expectedVersion) {
     throw new Error(
-      `expected wenxian 0.3.3, loaded ${installedVersion ?? "unknown"}`,
+      `expected wenxian ${expectedVersion}, loaded ${installedVersion ?? "unknown"}`,
+    );
+  }
+  if (
+    process.env.EXPECT_NO_NATIVE_LIMITERS === "1" &&
+    nativeLimiterRequests.length > 0
+  ) {
+    throw new Error(
+      `browser requested native-only limiter packages: ${nativeLimiterRequests.join(", ")}`,
     );
   }
 } catch (error) {
