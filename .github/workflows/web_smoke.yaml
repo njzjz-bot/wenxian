@@ -1,0 +1,33 @@
+name: Live web smoke test
+
+on:
+  push:
+    branches:
+      - agent/fix-live-web-runtime
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Exercise the deployed website
+        run: node tests/web_smoke.mjs
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-smoke-screenshot
+          path: web-smoke.png
+          if-no-files-found: ignore
