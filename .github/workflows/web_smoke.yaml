@@ -12,18 +12,65 @@ permissions:
 jobs:
   browser-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      - name: Build the branch wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel
+          wheel_path=$(echo dist/*.whl)
+          wheel_name=$(basename "$wheel_path")
+          cp "$wheel_path" "docs/$wheel_name"
+          version=$(python - "$wheel_path" <<'PY'
+          import sys
+          import zipfile
+
+          with zipfile.ZipFile(sys.argv[1]) as wheel:
+              metadata_name = next(
+                  name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")
+              )
+              metadata = wheel.read(metadata_name).decode()
+          print(
+              next(
+                  line.removeprefix("Version: ")
+                  for line in metadata.splitlines()
+                  if line.startswith("Version: ")
+              )
+          )
+          PY
+          )
+          echo "WENXIAN_WHEEL_URL=http://127.0.0.1:8000/$wheel_name" >> "$GITHUB_ENV"
+          echo "EXPECTED_WENXIAN_VERSION=$version" >> "$GITHUB_ENV"
       - name: Install Playwright
         run: |
           npm install --no-save playwright
           npx playwright install --with-deps chromium
-      - name: Exercise the deployed website
+      - name: Exercise the released package with the compatibility shim
         run: node tests/web_smoke.mjs
+      - name: Exercise the branch wheel without the compatibility shim
+        run: |
+          python -m http.server 8000 --directory docs >/tmp/wenxian-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          for _ in {1..20}; do
+            if curl --fail --silent http://127.0.0.1:8000/ >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          WENXIAN_WEB_URL=http://127.0.0.1:8000/ \
+          DISABLE_LEGACY_SHIM=1 \
+          EXPECT_NO_NATIVE_LIMITERS=1 \
+          node tests/web_smoke.mjs
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v7
