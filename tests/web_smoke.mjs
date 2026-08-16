@@ -24,7 +24,7 @@ if (process.env.WENXIAN_WHEEL_URL) {
   }
   workerSource = workerSource.replace(
     installLine,
-    `await micropip.install([${JSON.stringify(process.env.WENXIAN_WHEEL_URL)}, "pylatexenc==3.0a21"]);`,
+    `await micropip.install("pylatexenc==3.0a21");\n  await micropip.install(${JSON.stringify(process.env.WENXIAN_WHEEL_URL)});`,
   );
 }
 if (process.env.DISABLE_LEGACY_SHIM === "1") {
@@ -61,9 +61,7 @@ context.on("requestfailed", (request) => {
 });
 context.on("response", (response) => {
   const url = response.url();
-  if (
-    /(?:pyrate[-_]limiter|requests[-_]ratelimiter)/i.test(url)
-  ) {
+  if (/(?:pyrate[-_]limiter|requests[-_]ratelimiter)/i.test(url)) {
     nativeLimiterRequests.push(url);
   }
   if (
